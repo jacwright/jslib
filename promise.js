@@ -20,16 +20,56 @@ Promise.prototype = {
 	then: function(fulfilledHandler, failedHandler, progressHandler) {
 		throw new TypeError('The Promise base class is abstract, this function must be implemented by the Promise implementation');
 	},
-
+	
+	/**
+	 * Specific method for only passing a fulfilled handler.
+	 * 
+	 * @param handler
+	 */
+	fulfilled: function(handler) {
+		return this.then(handler);
+	},
+	
+	/**
+	 * Specific method for only passing a failed handler.
+	 * 
+	 * @param handler
+	 */
+	failed: function(handler) {
+		return this.then(null, handler);
+	},
+	
+	/**
+	 * Specific method for only passing a progress handler.
+	 * 
+	 * @param handler
+	 */
+	progress: function(handler) {
+		return this.then(null, null, handler);
+	},
+	
+	/**
+	 * Apply the promise's result array to the handler optionally providing a context. 
+	 * 
+	 * @param handler Fulfilled handler
+	 * @param [context] Optional context object
+	 */
+	apply: function(handler, context) {
+		return this.then(function(result) {
+			if (result instanceof Array) return handler.apply(context, result);
+			else return handler.call(context, result);
+		});
+	},
+	
 	/**
 	 * Allows the cancellation of a promise. Some promises are cancelable and so this method may be created on
 	 * subclasses of Promise to allow a consumer of the promise to cancel it.
 	 * 
 	 * @return {String|Error} Error string or object to provide to failedHandlers
 	 */
-//	cancel: function() {
-//		return 'Promise aborted';
-//	},
+	cancel: function() {
+		return 'Promise canceled';
+	},
 
 	/**
 	 * A shortcut to return the value of a property from the returned promise results. The same as providing your own
@@ -38,8 +78,8 @@ Promise.prototype = {
 	 * @param {String} propertyName The name of the property to return
 	 * @return {Promise} The new promise for the property value
 	 */
-	get: function(propertyName){
-		return this.then(function(object){
+	get: function(propertyName) {
+		return this.then(function(object) {
 			return object[propertyName];
 		});
 	},
@@ -54,8 +94,8 @@ Promise.prototype = {
 	 * @param {mixed} value The value for the property to be set to
 	 * @return {Promise} A new promise with the original results
 	 */
-	set: function(propertyName, value){
-		return this.then(function(object){
+	set: function(propertyName, value) {
+		return this.then(function(object) {
 			object[propertyName] = value;
 			return object;
 		});
@@ -70,8 +110,8 @@ Promise.prototype = {
 	 * @param {mixed} value The value for the property to be set to
 	 * @return {Promise} A new promise with the value
 	 */
-	put: function(propertyName, value){
-		return this.then(function(object){
+	put: function(propertyName, value) {
+		return this.then(function(object) {
 			return object[propertyName] = value;
 		});
 	},
@@ -85,8 +125,8 @@ Promise.prototype = {
 	 * @param {mixed} [...arguments] Zero or more arguments to pass to the function
 	 * @return {Promise} A new promise with the original results
 	 */
-	run: function(functionName /*, args */){
-		return this.then(function(object){
+	run: function(functionName /*, args */) {
+		return this.then(function(object) {
 			object[functionName].apply(object, Array.prototype.slice.call(arguments, 1));
 			return object;
 		});
@@ -101,8 +141,8 @@ Promise.prototype = {
 	 * @param {mixed} [...arguments] Zero or more arguments to pass to the function
 	 * @return {Promise} A new promise with the original results
 	 */
-	call: function(functionName /*, args */){
-		return this.then(function(object){
+	call: function(functionName /*, args */) {
+		return this.then(function(object) {
 			return object[functionName].apply(object, Array.prototype.slice.call(arguments, 1));
 		});
 	}
@@ -128,7 +168,7 @@ function when(obj) {
 		count = args.length,
 		createCallback = function(index) {
 			return function(value) {
-				args[index] = arguments.length > 1 ? Array.prototype.slice.call(arguments) : value;
+				args[index] = value;
 				if (--count == 0) {
 					deferred.fulfill.apply(null, args);
 				}
@@ -151,6 +191,18 @@ function when(obj) {
 
 
 /**
+ * Allows returning multiple values from a method that will be passed in as arguments in any methods handling the
+ * promise.
+ * @param ...arguments to be passed in
+ */
+function args() {
+	var args = Array.protoype.slice.call(arguments);
+	args.isArgs = true;
+	return args;
+}
+
+
+/**
  * Represents a deferred action with an associated promise.
  * 
  * @param promise Allow for custom promises to be used with deferred.
@@ -159,7 +211,7 @@ function Deferred(promise) {
 	this.status = 'unfulfilled';
 	this.progressHandlers = [];
 	this.handlers = [];
-	promise = this.promise = promise || new Promise();
+	promise = this.promise = promise || new Deferred.Promise();
 	var cancel = promise.cancel, self = this;
 	if (cancel) {
 		promise.cancel = function() {
@@ -184,7 +236,7 @@ Deferred.prototype = {
 		var nextDeferred = new Deferred();
 		var handler = { fulfilled: fulfilledHandler, failed: failedHandler, nextDeferred: nextDeferred };
 		
-		if (this.status != 'unfulfilled') {
+		if (this.finished()) {
 			notify.call(this, handler);
 		} else {
 			this.handlers.push(handler);
@@ -192,14 +244,19 @@ Deferred.prototype = {
 		return nextDeferred.promise;
 	},
 	
+	finished: function() {
+		return this.status != 'unfulfilled';
+	},
+			
 	fulfill: function(result) {
-		finish.call(this, 'fulfilled', Array.prototype.slice.call(arguments));
-		return this;
+		var args = result && result.isArgs ? result : Array.prototype.slice.call(arguments);
+		finish.call(this, 'fulfilled', args);
+//		return this;
 	},
 	
 	fail: function(error) {
 		finish.call(this, 'failed', Array.prototype.slice.call(arguments));
-		return this;
+//		return this;
 	},
 	
 	progress: function(info) {
@@ -207,7 +264,7 @@ Deferred.prototype = {
 		for (var i = 0, l = progress.length; i < l; i++) {
 			progress[i].apply(null, arguments);
 		}
-		return this;
+//		return this;
 	},
 	
 	timeout: function(milliseconds, error) {
@@ -239,16 +296,12 @@ function notify(handler) {
 	
 	// pass along the error/result
 	if (!method) {
-		deferred[this.status].apply(null, results);
+		deferred[this.status.slice(0, -2)].apply(null, results);
 		return;
 	}
 	
 	// run the then
-	try {
-		var nextResult = method.apply(null, results);
-	} catch(error) {
-		nextResult = error;
-	}
+	var nextResult = method.apply(null, results);
 	
 	if (nextResult && typeof nextResult.then === 'function') {
 		nextResult.then(deferred.fulfill, deferred.fail);
@@ -258,6 +311,8 @@ function notify(handler) {
 		deferred.fulfill(nextResult);
 	}
 }
+
+Deferred.Promise = Promise; // default promise implementation
 
 })();
 
@@ -281,4 +336,5 @@ if (typeof exports !== 'undefined') {
 	exports.Deferred = Deferred;
 	exports.Promise = Promise;
 	exports.when = when;
+	exports.args = args;
 }

@@ -22,51 +22,56 @@
  * alert(obj instanceof ImplClass); // false, though will have all the functions defined on ImplClass
  * alert(obj.constructor == MyClass); // true
  * 
- * @param implementation An object with the implementation of the class.
+ * @param def An object with the implementation of the class.
  */
 function Class(def, statics) {
 	if (arguments.length == 0) {
         def = {};
     }
-	var implement = def.implement,
-		extend = def.extend || Object,
-		constructor = def.constructor || function() {parent.apply(this, arguments)};
+	
+	var implement = def.hasOwnProperty('implement') ? def.implement : null,
+		extend = def.hasOwnProperty('extend') ? def.extend || Object : Object,
+		constructor = def.hasOwnProperty('constructor')
+				? def.constructor
+				: def.constructor = function() {extend.apply(this, arguments)};
 	
     delete def.extend;
     delete def.implement;
 	
 	// add implement first so definition can override it
-	if (implement instanceof Array) {
+	if (implement) {
+		var proto;
+		if ( !(implement instanceof Array) ) implement = [implement];
 		for (var i = 0, l = implement.length; i < l; i++) {
-			Object.defineProperties(constructor.prototype, implement[i].prototype);
+			proto = typeof implement[i] === 'function' ? implement[i].prototype : implement[i];
+			copy(def, proto, true);
 		}
-	} else if (implement) {
-		Object.defineProperties(constructor.prototype, implement[i].prototype);
 	}
 	
 	// Copy the properties over onto the new prototype
-	constructor.prototype = Object.create(extend, def);
+	constructor.prototype = copy(Object.create(extend.prototype), def);
 	
 	if (statics) {
-		Object.defineProperties(constructor, statics);
+		copy(constructor, statics);
 	}
 	
 	return constructor;
 }
 
-Class.convert = function(obj, type) {
-	if (obj.__proto__) { // cheaper method to make an object a given type/class
-		obj.__proto__ = type.prototype;
-		type.call(obj);
-	} else { // IE copy everything over
-		var newObj = new type();
-		for (var i in obj) {
-			newObj[i] = obj[i];
+/**
+ * Copy properties from source onto target, optionally choosing to not overwrite existing properties on the target.
+ * @param target
+ * @param source
+ * @param [noOverwrite]
+ */
+function copy(target, source, noOverwrite) {
+	for (var i in source) {
+		if (source[i] !== target[i] && (!noOverwrite || !target.hasOwnProperty(i))) {
+			target[i] = source[i];
 		}
-		obj = newObj;
 	}
-	return obj;
-};
+	return target;
+}
 
 if (typeof exports !== 'undefined') {
 	exports.Class = Class;
